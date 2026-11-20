@@ -1,0 +1,138 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="syg-url" content="https://script.google.com/macros/s/AKfycbzlyeXs_bdTn8gSzCyjg2pCI5qeVDNBTOwK2Ks8p5GqFrPTtWica9j6YbGtwKaepV98/exec"><title>SYGINOTES — Saisie des notes</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Roboto,Arial,sans-serif;background:#eef2f0;color:#1b2a24;font-size:16px}
+header{background:#0f6b3a;color:#fff;padding:14px 16px}header b{font-size:18px}header small{display:block;opacity:.85;font-size:13px;margin-top:2px}
+main{padding:12px;max-width:640px;margin:0 auto}.carte{background:#fff;border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+label{display:block;font-size:14px;color:#46564f;margin:10px 0 4px}input{width:100%;font-size:18px;padding:10px;border:1px solid #b9c7c0;border-radius:8px}
+.btn{display:inline-block;background:#0f6b3a;color:#fff;border:0;border-radius:10px;padding:12px 18px;font-size:16px;font-weight:600;margin-top:12px;width:100%}
+.btn.sec{background:#fff;color:#0f6b3a;border:2px solid #0f6b3a}.btn:disabled{opacity:.5}
+.lot{display:flex;align-items:center;gap:10px;padding:12px 4px;border-bottom:1px solid #e3e9e6;cursor:pointer}.lot:last-child{border:0}
+.lot .t{flex:1}.lot small{display:block;color:#5d6d66;font-size:13px}.pct{font-weight:700}.ok{color:#0f6b3a}.rouge{color:#c62828}
+.ln{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #eef2f0}.ln .n{width:26px;color:#7a8a83;font-size:13px}
+.ln .nm{flex:1;font-size:15px;line-height:1.2}.ln .nm small{display:block;color:#7a8a83;font-size:12px}.ln input{width:78px;text-align:center;font-weight:700;padding:8px 4px}
+.ln input.err{border:2px solid #c62828}.abs{width:52px;padding:8px 0;border-radius:8px;border:1px solid #0f6b3a;background:#fff;color:#0f6b3a;font-weight:600}
+.barre{position:sticky;bottom:0;background:#eef2f0;padding:8px 0 4px}.msg{padding:10px;border-radius:8px;margin-top:10px;font-size:14px}
+.msg.e{background:#fdecea;color:#b71c1c}.msg.o{background:#e7f4ec;color:#0f6b3a}.aide{font-size:13px;color:#5d6d66}.cache{display:none}
+</style></head><body>
+<header><b>SYGINOTES — Saisie des notes</b><small id="hd">Saisie en ligne pour les enseignants</small></header>
+<main>
+<div id="vConn" class="carte">
+  <label for="code">Code reçu</label><input id="code" autocapitalize="characters" autocomplete="off" value="">
+  <label for="pin">PIN</label><input id="pin" inputmode="numeric" type="password" autocomplete="off">
+  <button class="btn" id="bOuvrir">Ouvrir</button><div id="mConn"></div>
+  <p class="aide">Le code et le PIN vous ont été envoyés par l'administration de l'établissement.</p>
+</div>
+<div id="vLots" class="cache"><div class="carte" id="info"></div><div class="carte" id="lots"></div><button class="btn sec" id="bQuitter">Fermer la session</button></div>
+<div id="vSaisie" class="cache">
+  <div class="carte"><b id="sTitre"></b><div class="aide" id="sInfo"></div></div>
+  <div class="carte" id="liste"></div>
+  <div class="carte aide" id="sStats"></div>
+  <div class="barre"><button class="btn" id="bEnr">Enregistrer</button><button class="btn sec" id="bRetour">Retour à mes classes</button><div id="mSai"></div></div>
+</div>
+</main>
+<script>
+var S = { code: '', pin: '', d: null, lot: null, modif: false };
+(function () { var c = (location.search.match(/[?&]c=([^&#]*)/) || [])[1] || ''; $('code').value = decodeURIComponent(c).replace(/[^A-Za-z0-9-]/g, '').toUpperCase(); })();
+function $(i) { return document.getElementById(i); }
+function esc(s) { return String(s === undefined || s === null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function virg(v) { return String(v).replace('.', ','); }
+function fmt(v) { return v === undefined || v === null || v === '' ? '' : typeof v === 'number' ? virg(v) : v; }
+function lire(s, type) {
+  s = String(s || '').trim().toUpperCase();
+  if (!s) return { ok: true, v: '' };
+  if (S.d && S.d.justif === false && /^[A-Z]/.test(s)) return { ok: false };
+  if (s === 'J' || s === 'A' || s === 'D' || s === 'ABS') { var x = s === 'ABS' ? 'A' : s; if (type === 'examen' && x === 'J') x = 'A'; return { ok: true, v: x }; }
+  if (!/^\d{1,2}([.,]\d{1,2})?$/.test(s)) return { ok: false };
+  var v = parseFloat(s.replace(',', '.'));
+  return v >= 0 && v <= 20 ? { ok: true, v: v } : { ok: false };
+}
+function msg(id, t, err) { $(id).innerHTML = t ? '<div class="msg ' + (err ? 'e' : 'o') + '">' + esc(t) + '</div>' : ''; }
+function vue(v) { ['vConn', 'vLots', 'vSaisie'].forEach(function (x) { $(x).className = x === v ? '' : 'cache'; }); window.scrollTo(0, 0); }
+var URL_API = document.querySelector('meta[name="syg-url"]').content;
+function appel(fn, args, ok, ko) {
+  var corps = fn === 'ouvrir' ? { action: 'ensOuvrir', code: args[0], pin: args[1] } : { action: 'ensEnregistrer', code: args[0], pin: args[1], lot: args[2], valeurs: args[3] };
+  if (!/^https:\/\/script\.google\.com\//.test(URL_API)) { ko('Page mal installée : adresse du serveur absente. Prévenez l’administration.'); return; }
+  fetch(URL_API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(corps), redirect: 'follow' })
+    .then(function (r) { if (!r.ok) throw new Error('Le serveur a répondu « erreur ' + r.status + ' ». Réessayez plus tard.'); return r.text(); })
+    .then(function (t) {
+      var d; try { d = JSON.parse(t); } catch (e) { throw new Error('Réponse inattendue du serveur Google (le déploiement doit être accessible à « Tout le monde »). Prévenez l’administration.'); }
+      if (d && d.ok) { ok(fn === 'ouvrir' ? d.donnees : d); return; }
+      var m = String(d && d.erreur || 'Erreur inconnue.').replace(/^Error: /, '');
+      if (/administration refus|Action inconnue/.test(m)) m = 'Le script Google de l’établissement doit être mis à jour (version 3). Prévenez l’administration.';
+      ko(m);
+    })
+    .catch(function (e) { var m = String(e && e.message || e); ko(/Failed to fetch|NetworkError|Load failed|network/i.test(m) ? 'Pas de connexion Internet (ou serveur injoignable). Réessayez.' : m); });
+}
+function brouillon(cle) { try { return JSON.parse(localStorage.getItem('syg|' + S.code + '|' + cle) || 'null'); } catch (e) { return null; } }
+function garderBrouillon(cle, v) { try { if (v) localStorage.setItem('syg|' + S.code + '|' + cle, JSON.stringify(v)); else localStorage.removeItem('syg|' + S.code + '|' + cle); } catch (e) {} }
+$('bOuvrir').onclick = function () {
+  S.code = $('code').value.trim().toUpperCase(); S.pin = $('pin').value.trim();
+  if (!S.code || !S.pin) { msg('mConn', 'Tapez le code et le PIN.', true); return; }
+  $('bOuvrir').disabled = true; msg('mConn', 'Connexion…');
+  appel('ouvrir', [S.code, S.pin], function (d) { $('bOuvrir').disabled = false; msg('mConn', ''); S.d = d; afficherLots(); }, function (e) { $('bOuvrir').disabled = false; msg('mConn', e, true); });
+};
+$('pin').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('bOuvrir').click(); });
+$('bQuitter').onclick = function () { S.pin = ''; S.d = null; $('pin').value = ''; vue('vConn'); };
+function nbNotes(l) { var v = (brouillon(l.cle) || {}).valeurs || l.valeurs || {}; return l.eleves.filter(function (e) { return v[e.id] !== undefined && v[e.id] !== ''; }).length; }
+function afficherLots() {
+  var d = S.d;
+  $('hd').textContent = (d.etab || '') + (d.annee ? ' · ' + d.annee : '');
+  $('info').innerHTML = '<b>' + esc(d.titre) + '</b><div class="aide">' + esc(d.nom) + (d.dateLimite ? ' · à saisir avant le ' + esc(d.dateLimite.split('-').reverse().join('/')) : '') + '</div>' +
+    (d.ferme ? '<div class="msg e">La saisie est fermée par l’administration : consultation seulement.</div>' : '');
+  $('lots').innerHTML = (d.lots || []).map(function (l, i) {
+    var n = nbNotes(l), t = l.eleves.length, b = brouillon(l.cle);
+    return '<div class="lot" data-i="' + i + '"><div class="t"><b>' + esc(l.classe) + ' · ' + esc(l.matiere) + '</b><small>' + (l.coef ? 'coef. ' + virg(l.coef) + ' · ' : '') + t + ' élève(s)' +
+      (b ? ' · <span class="rouge">non envoyé</span>' : l.enregistreLe ? ' · envoyé le ' + esc(new Date(l.enregistreLe).toLocaleString('fr-FR')) : '') + '</small></div><span class="pct ' + (n >= t ? 'ok' : '') + '">' + n + '/' + t + '</span></div>';
+  }).join('') || '<p class="aide">Aucune classe ne vous est attribuée pour cette saisie.</p>';
+  Array.prototype.forEach.call(document.querySelectorAll('.lot'), function (x) { x.onclick = function () { ouvrirLot(S.d.lots[+x.getAttribute('data-i')]); }; });
+  vue('vLots');
+}
+function ouvrirLot(l) {
+  S.lot = l; S.modif = false;
+  var b = brouillon(l.cle), v = b ? b.valeurs : (l.valeurs || {}), ex = S.d.type === 'examen';
+  $('sTitre').textContent = l.classe + ' · ' + l.matiere;
+  $('sInfo').innerHTML = esc(S.d.titre) + (l.coef ? ' · coef. ' + virg(l.coef) : '') + (b ? '<br><span class="rouge">Notes non encore envoyées (gardées sur ce téléphone) : touchez Enregistrer.</span>' : '');
+  $('liste').innerHTML = l.eleves.map(function (e, i) {
+    return '<div class="ln" data-id="' + esc(e.id) + '"><span class="n">' + (i + 1) + '</span><div class="nm">' + esc(e.noms) + (e.num ? '<small>N° ' + esc(e.num) + '</small>' : '') + '</div>' +
+      '<input inputmode="decimal" autocomplete="off" value="' + esc(fmt(typeof v[e.id] !== 'number' && S.d.justif === false ? '' : v[e.id])) + '"' + (S.d.ferme ? ' readonly' : '') + '>' + (S.d.ferme || S.d.justif === false ? '' : '<button class="abs" tabindex="-1">Abs</button>') + '</div>';
+  }).join('');
+  var ins = Array.prototype.slice.call(document.querySelectorAll('#liste input'));
+  ins.forEach(function (inp, i) {
+    inp.oninput = function () { S.modif = true; stats(); garderBrouillon(l.cle, { valeurs: valeurs() }); };
+    inp.onfocus = function () { inp.select(); };
+    inp.onblur = function () { var r = lire(inp.value, S.d.type); if (r.ok) inp.value = fmt(r.v); };
+    inp.onkeydown = function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); if (ins[i + 1]) ins[i + 1].focus(); else inp.blur(); } };
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('#liste .abs'), function (bt) {
+    bt.onclick = function () { var inp = bt.parentNode.querySelector('input'), x = lire(inp.value, S.d.type).v; inp.value = ex ? (x === 'A' ? 'D' : x === 'D' ? '' : 'A') : (x === 'J' ? 'A' : x === 'A' ? 'D' : x === 'D' ? '' : 'J'); inp.oninput(); };
+  });
+  $('bEnr').disabled = !!S.d.ferme;
+  msg('mSai', ''); stats(); vue('vSaisie');
+}
+function valeurs() {
+  var o = {};
+  Array.prototype.forEach.call(document.querySelectorAll('#liste .ln'), function (ln) { var r = lire(ln.querySelector('input').value, S.d.type); if (r.ok && r.v !== '') o[ln.getAttribute('data-id')] = r.v; });
+  return o;
+}
+function stats() {
+  var n = [], bad = 0, a = 0;
+  Array.prototype.forEach.call(document.querySelectorAll('#liste input'), function (inp) { var r = lire(inp.value, S.d.type); inp.className = r.ok ? '' : 'err'; if (!r.ok) bad++; else if (typeof r.v === 'number') n.push(r.v); else if (r.v) a++; });
+  var m = n.length ? n.reduce(function (s, x) { return s + x; }, 0) / n.length : null;
+  $('sStats').innerHTML = n.length + ' note(s) · ' + a + ' J/A/D · moyenne ' + (m === null ? '—' : virg(m.toFixed(2))) + (n.length ? ' · ≥ 10 : ' + n.filter(function (x) { return x >= 10; }).length : '') +
+    (bad ? ' · <b class="rouge">' + bad + ' note(s) invalide(s)</b>' : '') + '<br>Note sur 20 (ex. 12,5).' + (S.d.justif === false ? ' Seules les notes de 0 à 20 sont acceptées.' : ' Abs : ' + (S.d.type === 'examen' ? 'A = absent, D = dispensé.' : 'J = absent justifié, A = absent non justifié, D = dispensé.'));
+  return bad;
+}
+$('bEnr').onclick = function () {
+  if (stats()) { msg('mSai', 'Corrigez les notes en rouge (0 à 20).', true); return; }
+  var l = S.lot, v = valeurs();
+  garderBrouillon(l.cle, { valeurs: v });
+  $('bEnr').disabled = true; msg('mSai', 'Envoi…');
+  appel('enregistrer', [S.code, S.pin, l.cle, v], function (r) {
+    $('bEnr').disabled = false; S.modif = false; garderBrouillon(l.cle, null); l.valeurs = v; l.enregistreLe = r.le;
+    msg('mSai', r.nombre + ' note(s) envoyée(s) à l’administration. Vous pouvez encore les corriger tant que la saisie est ouverte.');
+  }, function (e) { $('bEnr').disabled = false; msg('mSai', e + ' — Vos notes restent gardées sur ce téléphone : réessayez quand la connexion revient.', true); });
+};
+$('bRetour').onclick = function () { if (S.modif && !confirm('Des notes ne sont pas envoyées (elles restent gardées sur ce téléphone). Revenir quand même ?')) return; afficherLots(); };
+window.addEventListener('beforeunload', function (e) { if (S.modif) { e.preventDefault(); e.returnValue = ''; } });
+if ($('code').value) $('pin').focus();
+</script></body></html>
